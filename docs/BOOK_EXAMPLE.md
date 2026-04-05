@@ -7,6 +7,7 @@ This document describes how Axiom implements a physically realistic page-flip bo
 ## Why frameworks fail at this
 
 CSS cannot express:
+
 - The bezier-curved fold of a page under physical stress
 - The perspective foreshortening of a page as it rotates
 - The dynamic shadow gradient at the fold crease
@@ -35,6 +36,7 @@ Axiom renders the page as a custom path on Canvas, calculated from the drag posi
 ```
 
 **Dimensions (reference: 1440×900 viewport):**
+
 ```
 BOOK_W     = 900   // total book width (both pages)
 BOOK_H     = 580   // book height
@@ -52,7 +54,9 @@ BOOK_Y     = (vh - BOOK_H) / 2  = 160
 {
   "background": "#1A1208",
   "backgroundGradient": {
-    "cx": 0.5, "cy": 0.5, "r": 0.9,
+    "cx": 0.5,
+    "cy": 0.5,
+    "r": 0.9,
     "from": "#2A1E0F",
     "to": "#100C06"
   },
@@ -81,12 +85,14 @@ BOOK_Y     = (vh - BOOK_H) / 2  = 160
         {
           "id": "left-page-content",
           "type": "group",
-          "x": 40, "y": 40,
+          "x": 40,
+          "y": 40,
           "children": [
             {
               "id": "left-chapter",
               "type": "text",
-              "x": 0, "y": 0,
+              "x": 0,
+              "y": 0,
               "content": "Chapter One",
               "font": "400 11px Garamond, Georgia, serif",
               "fill": "#8B7355",
@@ -95,7 +101,8 @@ BOOK_Y     = (vh - BOOK_H) / 2  = 160
             {
               "id": "left-body",
               "type": "text",
-              "x": 0, "y": 28,
+              "x": 0,
+              "y": 28,
               "content": "It was the best of times, it was the worst of times, it was the age of wisdom, it was the age of foolishness...",
               "font": "400 15px Garamond, Georgia, serif",
               "fill": "#2C1810",
@@ -108,7 +115,8 @@ BOOK_Y     = (vh - BOOK_H) / 2  = 160
         {
           "id": "left-page-number",
           "type": "text",
-          "x": 225, "y": 540,
+          "x": 225,
+          "y": 540,
           "content": "1",
           "font": "400 12px Garamond, Georgia, serif",
           "fill": "#8B7355",
@@ -143,11 +151,11 @@ The standard scene rendering handles static pages. The flip effect requires cust
 
 ```typescript
 type PageFlipState = {
-  isDragging:    boolean
-  foldX:         number   // current x position of the fold crease
-  dragVelocity:  number   // px/frame, used for momentum on release
-  flipSpring:    Spring   // spring that animates foldX to its final position
-  direction:     'forward' | 'backward'
+  isDragging: boolean
+  foldX: number // current x position of the fold crease
+  dragVelocity: number // px/frame, used for momentum on release
+  flipSpring: Spring // spring that animates foldX to its final position
+  direction: 'forward' | 'backward'
 }
 ```
 
@@ -177,9 +185,9 @@ function renderPageFlip(ctx: CanvasRenderingContext2D, state: PageFlipState, boo
 
   // 3. Draw the back face (left of foldX, foreshortened)
   //    This is the underside of the turning page, compressed by perspective
-  const flipWidth  = foldX - SPINE_X
-  const backWidth  = Math.max(0, PAGE_W - flipWidth)
-  const scaleX     = backWidth / PAGE_W   // perspective compression ratio
+  const flipWidth = foldX - SPINE_X
+  const backWidth = Math.max(0, PAGE_W - flipWidth)
+  const scaleX = backWidth / PAGE_W // perspective compression ratio
 
   if (scaleX > 0) {
     ctx.save()
@@ -189,18 +197,23 @@ function renderPageFlip(ctx: CanvasRenderingContext2D, state: PageFlipState, boo
 
     // Apply horizontal compression toward the spine
     ctx.transform(scaleX, 0, 0, 1, SPINE_X - scaleX * SPINE_X, 0)
-    drawPageContent(ctx, state.nextPage, { x: SPINE_X, y: BOOK_Y, w: PAGE_W, h: BOOK_H }, { mirror: true })
+    drawPageContent(
+      ctx,
+      state.nextPage,
+      { x: SPINE_X, y: BOOK_Y, w: PAGE_W, h: BOOK_H },
+      { mirror: true },
+    )
     ctx.restore()
   }
 
   // 4. Draw fold shadow gradient
   const shadowWidth = 30
-  const shadowGrad  = ctx.createLinearGradient(foldX - shadowWidth, 0, foldX + shadowWidth, 0)
-  shadowGrad.addColorStop(0,   'rgba(0,0,0,0)')
+  const shadowGrad = ctx.createLinearGradient(foldX - shadowWidth, 0, foldX + shadowWidth, 0)
+  shadowGrad.addColorStop(0, 'rgba(0,0,0,0)')
   shadowGrad.addColorStop(0.4, 'rgba(0,0,0,0.12)')
   shadowGrad.addColorStop(0.5, 'rgba(0,0,0,0.3)')
-  shadowGrad.addColorStop(0.6, 'rgba(255,255,255,0.15)')  // highlight on edge
-  shadowGrad.addColorStop(1,   'rgba(0,0,0,0)')
+  shadowGrad.addColorStop(0.6, 'rgba(255,255,255,0.15)') // highlight on edge
+  shadowGrad.addColorStop(1, 'rgba(0,0,0,0)')
 
   ctx.fillStyle = shadowGrad
   ctx.fillRect(foldX - shadowWidth, BOOK_Y, shadowWidth * 2, BOOK_H)
@@ -216,15 +229,15 @@ canvas.addEventListener('mousedown', (e) => {
   const x = e.clientX - canvasRect.left
   if (x > SPINE_X) {
     state.isDragging = true
-    state.foldX      = SPINE_X + PAGE_W  // start at the right edge
+    state.foldX = SPINE_X + PAGE_W // start at the right edge
   }
 })
 
 canvas.addEventListener('mousemove', (e) => {
   if (!state.isDragging) return
-  const x            = e.clientX - canvasRect.left
+  const x = e.clientX - canvasRect.left
   state.dragVelocity = x - state.foldX
-  state.foldX        = Math.max(SPINE_X, Math.min(SPINE_X + PAGE_W, x))
+  state.foldX = Math.max(SPINE_X, Math.min(SPINE_X + PAGE_W, x))
   // Trigger re-render — the spring loop is not running during manual drag
   requestRender()
 })
@@ -234,7 +247,7 @@ canvas.addEventListener('mouseup', () => {
   state.isDragging = false
 
   // Decide: complete the flip or snap back?
-  const threshold = SPINE_X + PAGE_W * 0.4   // 40% from spine
+  const threshold = SPINE_X + PAGE_W * 0.4 // 40% from spine
 
   if (state.foldX < threshold || state.dragVelocity < -2) {
     // Complete the turn: spring foldX to spine
@@ -259,12 +272,12 @@ Real paper resists being turned. Early in the drag, it should feel stiff; past t
 function easeDrag(t: number): number {
   // t is 0..1 (0 = full right, 1 = at spine)
   return t < 0.5
-    ? 2 * t * t             // ease-in: stiff at start
-    : 1 - 2 * (1-t) * (1-t) // ease-out: accelerates past midpoint
+    ? 2 * t * t // ease-in: stiff at start
+    : 1 - 2 * (1 - t) * (1 - t) // ease-out: accelerates past midpoint
 }
 
-const t       = 1 - (state.rawFoldX - SPINE_X) / PAGE_W
-state.foldX   = SPINE_X + PAGE_W * (1 - easeDrag(t))
+const t = 1 - (state.rawFoldX - SPINE_X) / PAGE_W
+state.foldX = SPINE_X + PAGE_W * (1 - easeDrag(t))
 ```
 
 ---
@@ -272,6 +285,7 @@ state.foldX   = SPINE_X + PAGE_W * (1 - easeDrag(t))
 ## Text layout on pages
 
 Page content uses the Pretext library (the inspiration for Axiom) for precise character-level layout. This enables:
+
 - Exact line-break positions (no browser layout engine)
 - Hyphenation control
 - Running headers aligned to the exact text baseline
@@ -286,6 +300,7 @@ Each page is a content unit: a list of paragraphs that are flowed onto the page 
 A React-based page-flip uses `rotateY: 180deg` and `preserve-3d`. The fold is a rigid flat card rotation — no curve, no compression, no paper feel.
 
 Axiom renders the fold as a per-frame bezier path with:
+
 - Perspective foreshortening via canvas transform
 - Dynamic shadow gradient at the crease
 - Spring momentum on release

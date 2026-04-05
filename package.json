@@ -1,16 +1,79 @@
 {
   "name": "axiom",
-  "version": "0.1.0",
+  "version": "0.2.1",
   "description": "Mathematical UI. Physics-first. LLM-authored.",
-  "private": true,
+  "license": "MIT",
+  "private": false,
   "type": "module",
+  "keywords": [
+    "canvas",
+    "ui",
+    "physics",
+    "springs",
+    "llm",
+    "pretext",
+    "scene-graph",
+    "typescript"
+  ],
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && vite build",
-    "preview": "vite preview"
+    "build": "npm run build:lib && npm run typecheck && vite build",
+    "build:lib": "tsc -p tsconfig.lib.json",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "format": "prettier --write \"**/*.{ts,md,json,html}\"",
+    "format:check": "prettier --check \"**/*.{ts,md,json,html}\"",
+    "check": "npm run format:check && npm run typecheck && npm test",
+    "prepublishOnly": "npm run build:lib"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist-lib/index.d.ts",
+      "import": "./dist-lib/index.js",
+      "default": "./dist-lib/index.js"
+    },
+    "./types": {
+      "types": "./dist-lib/types.d.ts",
+      "import": "./dist-lib/types.js",
+      "default": "./dist-lib/types.js"
+    },
+    "./renderer": {
+      "types": "./dist-lib/renderer.d.ts",
+      "import": "./dist-lib/renderer.js",
+      "default": "./dist-lib/renderer.js"
+    },
+    "./runtime": {
+      "types": "./dist-lib/runtime.d.ts",
+      "import": "./dist-lib/runtime.js",
+      "default": "./dist-lib/runtime.js"
+    },
+    "./pretext-layout": {
+      "types": "./dist-lib/pretext-layout.d.ts",
+      "import": "./dist-lib/pretext-layout.js",
+      "default": "./dist-lib/pretext-layout.js"
+    },
+    "./kit": {
+      "types": "./dist-lib/kit/index.d.ts",
+      "import": "./dist-lib/kit/index.js",
+      "default": "./dist-lib/kit/index.js"
+    }
+  },
+  "files": [
+    "dist-lib",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE",
+    "docs"
+  ],
+  "dependencies": {
+    "@chenglou/pretext": "^0.0.4"
   },
   "devDependencies": {
+    "happy-dom": "^17.0.0",
+    "prettier": "^3.4.0",
     "typescript": "^5.6.0",
-    "vite": "^6.0.0"
+    "vite": "^6.0.0",
+    "vitest": "^3.0.0"
   }
 }

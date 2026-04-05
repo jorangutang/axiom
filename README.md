@@ -4,25 +4,49 @@
 
 Axiom is a canvas-based UI rendering platform where every element has an exact coordinate, every animation is a spring equation, and the entire interface is described as pure data. No CSS. No DOM layout. No component tree.
 
+Multiline typography can use [**Pretext**](https://www.npmjs.com/package/@chenglou/pretext) (`textLayout: "pretext"`) for DOM-free measurement and line breaking on the same canvas draw path.
+
 ```bash
 cd axiom && npm install && npm run dev
 ```
+
+**Demos (query string):**
+
+- Default: **book** — page-flip showcase (`src/book-demo.ts`).
+- `?demo=editorial` — card width oscillates; Pretext body reflows every frame + hover springs.
+- `?demo=dense` — many labeled cells with Pretext + hover lift.
+
+---
+
+## For LLMs and tools
+
+1. Read [docs/LLM_PRIMER.md](docs/LLM_PRIMER.md) before generating scenes.
+2. Follow [docs/SCENE_FORMAT.md](docs/SCENE_FORMAT.md) for the full type contract.
+3. Set `"formatVersion": 1` on scenes (or omit; default is `1`). Breaking JSON changes are recorded in [CHANGELOG.md](CHANGELOG.md).
+
+**Example build prompt:** [docs/PROMPT_EXAMPLE_WATER_TIMER.md](docs/PROMPT_EXAMPLE_WATER_TIMER.md) — “Rain Timer” (water drops, clever duration UX, Pretext, springs). Copy the fenced block into your LLM.
+
+---
+
+## npm package (library)
+
+The repo builds an ESM bundle to `dist-lib/` (`npm run build:lib`). Subpath exports:
+
+| Import                 | Purpose                                                          |
+| ---------------------- | ---------------------------------------------------------------- |
+| `axiom`                | Types, renderer, runtime, physics, hittest, pretext helpers, kit |
+| `axiom/kit`            | `card`, `button`, `textBlock`, `kitTheme`                        |
+| `axiom/pretext-layout` | Pretext prepare cache + line layout helpers                      |
+
+After `npm run build:lib`, consumers can depend on this package from git or npm. `prepublishOnly` runs the library build.
 
 ---
 
 ## The problem with the current stack
 
-The web's rendering pipeline was designed for documents. CSS describes rules; the browser discovers positions. React manages DOM mutations. TypeScript types the JavaScript. Webpack bundles it all. Each layer is an escape hatch from the previous layer's problems.
+The web's rendering pipeline was designed for documents. CSS describes rules; the browser discovers positions. React manages DOM mutations. Each layer is an escape hatch from the previous layer's problems.
 
-By the time a button appears on screen it has passed through:
-
-```
-JSX → JavaScript → Reconciler → DOM mutation
-CSS cascade → Computed styles → Layout engine → Box positions
-Paint → Composite → GPU
-```
-
-The layout engine is a black box. You write `display: flex; align-items: center` and hope the browser interprets it the way you imagine. You find out if you were wrong by opening DevTools.
+By the time a button appears on screen it has passed through layout, paint, and composite. The layout engine is a black box for reasoning and for LLMs that must emit precise UI.
 
 ---
 
@@ -36,22 +60,19 @@ Natural language description
     Scene JSON  ← explicit coordinates, spring configs, interactions
          ↓
   Axiom Runtime
-    ├─ Expression resolver
     ├─ Hit test engine (replaces DOM event bubbling)
     └─ Spring physics (replaces CSS transitions)
          ↓
-  Canvas 2D / WebGL
+  Canvas 2D
          ↓
       Pixels
 ```
 
-**A scene is pure JSON.** Every element has an explicit x, y, width, height. No rules. No inheritance. No cascade. The browser's role is reduced to: run JavaScript, receive mouse events, draw a canvas.
+**A scene is pure JSON.** The browser runs JavaScript, forwards pointer events, and draws pixels.
 
-**Springs replace transitions.** CSS `transition: transform 0.3s ease-out` is a cubic-bezier approximation of motion. A spring is `F = -kx - bv` — real physics. Springs compose, chain, and respond to interruption naturally. Change the target mid-animation: smooth continuation. CSS: jarring restart.
+**Springs replace transitions.** Change targets mid-animation without fighting transition CSS.
 
-**LLMs are the intended author.** Coordinate math is mechanical. An LLM can reason: "the card is 64px tall, so vertically centered is at y = 32". It can calculate that three cards of width 300px with 28px gaps need `(viewport.width - (300*3 + 28*2)) / 2` left margin. Humans find this tedious. LLMs find it trivial.
-
-The inversion: instead of a human writing CSS rules and a browser discovering positions, an LLM writes positions and the browser just draws them.
+**LLMs are the intended author.** Coordinates and layout arithmetic are explicit; optional Pretext improves text when `textLayout` is `"pretext"`.
 
 ---
 
@@ -60,36 +81,46 @@ The inversion: instead of a human writing CSS rules and a browser discovering po
 ```
 axiom/
 ├── src/
-│   ├── types.ts      Scene type definitions — the contract LLMs write to
-│   ├── physics.ts    Spring engine (Hooke's law, Euler integration)
-│   ├── renderer.ts   Canvas 2D renderer (stateless, pure draw calls)
-│   ├── hittest.ts    Geometric hit testing (replaces DOM event bubbling)
-│   ├── runtime.ts    Orchestrator: RAF loop, springs, input events
-│   └── main.ts       Demo scene
+│   ├── types.ts           Scene contract (LLM output)
+│   ├── renderer.ts        Canvas 2D draw
+│   ├── pretext-layout.ts  Pretext prepare cache + line drawing
+│   ├── hittest.ts
+│   ├── physics.ts
+│   ├── runtime.ts         RAF, springs, input, `setFrameCallback` for demos
+│   ├── kit/               card, button, textBlock builders
+│   ├── demos/             editorial + dense showcases
+│   ├── book-demo.ts
+│   └── main.ts            Boots demo from `?demo=`
 ├── docs/
-│   ├── LLM_PRIMER.md     How to generate Axiom scenes (read this first)
-│   ├── SCENE_FORMAT.md   Complete type reference
-│   ├── PHYSICS.md        Spring parameter guide
-│   └── BOOK_EXAMPLE.md   Tactile page-flip book implementation plan
-└── index.html            Single canvas element + minimal reset CSS
+│   ├── LLM_PRIMER.md
+│   ├── SCENE_FORMAT.md
+│   ├── PHYSICS.md
+│   ├── BOOK_EXAMPLE.md
+│   └── PROMPT_EXAMPLE_WATER_TIMER.md   example LLM prompt (Rain Timer)
+├── CHANGELOG.md
+├── CONTRIBUTING.md
+├── LICENSE
+└── index.html
 ```
 
 ---
 
-## What the demo shows
+## Scripts
 
-Three cards on a dark background. Each card springs upward 10px on hover — the shadow deepens automatically because the renderer receives the spring displacement and adjusts shadow offset accordingly. On mousedown, the card dips back to -4px (pressed feel), then springs to -10px on release.
+- `npm run dev` — Vite dev server.
+- `npm run build` — `build:lib`, typecheck, production Vite build.
+- `npm run build:lib` — emit `dist-lib/` + declarations for publishing.
+- `npm run typecheck` — `tsc --noEmit`.
+- `npm test` — Vitest (Pretext tests stub `OffscreenCanvas` in Node).
+- `npm run format` / `npm run format:check` — Prettier.
+- `npm run check` — format check, typecheck, and tests.
 
-No CSS transition. No `animation` keyframe. The motion is described by two numbers: `stiffness: 320, damping: 24`.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for PR expectations.
 
 ---
 
-## Roadmap
+## Roadmap (selected)
 
-- **v0** (current): Scene format, Canvas 2D renderer, spring physics, hit testing
-- **v1**: Expression evaluator (viewport-relative coordinates in JSON), constraint solver
-- **v2**: WebGPU renderer, WGSL shader effects (glass, glow, noise)
-- **v3**: Page-flip book implementation, gesture physics (drag with momentum)
-- **v4**: LLM integration layer — natural language → scene JSON pipeline
-- **v5**: Visual inspector (humans read what the LLM generated)
-- **v6**: Accessibility tree generation alongside the visual scene
+- Expression evaluator for viewport-relative numeric expressions in JSON.
+- WebGPU / richer materials.
+- Accessibility and hybrid DOM strategies for forms and screen readers where canvas-only is not enough.

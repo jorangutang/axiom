@@ -22,8 +22,8 @@
 
 import type { SpringConfig } from './types.js'
 
-const SETTLE_VELOCITY = 0.01   // px/s — below this, consider velocity zero
-const SETTLE_DISTANCE = 0.01   // px — below this, snap to target
+const SETTLE_VELOCITY = 0.01 // px/s — below this, consider velocity zero
+const SETTLE_DISTANCE = 0.01 // px — below this, snap to target
 
 export class Spring {
   stiffness: number
@@ -62,7 +62,7 @@ export class Spring {
   // Returns true if the spring is still in motion
   step(dt: number): boolean {
     const displacement = this.position - this.target
-    const springForce  = -this.stiffness * displacement
+    const springForce = -this.stiffness * displacement
     const dampingForce = -this.damping * this.velocity
     const acceleration = (springForce + dampingForce) / this.mass
 

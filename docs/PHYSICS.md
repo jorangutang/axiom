@@ -12,6 +12,7 @@ x += v · dt
 ```
 
 Where:
+
 - `k` = stiffness (spring constant)
 - `b` = damping coefficient
 - `m` = mass
@@ -44,6 +45,7 @@ How quickly oscillation decays. Think of damping as the resistance the element m
 - **Overdamped** (b > 2√(k·m)): slowly approaches target without overshoot (sluggish)
 
 For a spring with `k = 320, m = 1`:
+
 - Critical damping: `b = 2 * √320 ≈ 35.8`
 - Slightly underdamped (natural feel): `b ≈ 24`
 - Noticeably bouncy: `b ≈ 12`
@@ -85,11 +87,13 @@ Controls inertia — how quickly the spring responds to a new target.
 ## How springs differ from CSS transitions
 
 CSS `transition: transform 0.3s ease-out`:
+
 - Duration is fixed. Interrupting mid-animation causes a discontinuity.
 - The easing curve is an approximation of physical motion.
 - Cannot respond to velocity (dragging an element then releasing).
 
 Spring `{ stiffness: 320, damping: 24 }`:
+
 - Duration is emergent from the physics. Settles when it settles.
 - Interruption is seamless — the spring continues from its current velocity.
 - Drag-and-release produces natural momentum deceleration.
@@ -102,6 +106,7 @@ Spring `{ stiffness: 320, damping: 24 }`:
 A tactile book page turn requires:
 
 ### 1. Fold point tracking
+
 The fold is a vertical line at `x = foldX`, following the user's drag position. As the user drags left from the right edge, `foldX` moves left.
 
 ```
@@ -109,11 +114,14 @@ foldX = pageRight - dragDistance
 ```
 
 ### 2. Page geometry split
+
 The flipping page is rendered in two sections:
+
 - **Right of fold**: the front face of the page (visible, not yet revealed)
 - **Left of fold**: the back face of the page (the underside, mirrored)
 
 ### 3. 3D perspective illusion (Canvas 2D)
+
 The left section (flipped portion) is rendered with a horizontal compression that increases as `foldX` approaches the spine. This simulates perspective foreshortening:
 
 ```
@@ -124,19 +132,24 @@ scaleX = compressionRatio                           // compress width as it fold
 Applied using `ctx.transform(compressionRatio, 0, 0, 1, spineX, 0)` before drawing the back face.
 
 ### 4. Fold shadow gradient
+
 A linear gradient across the fold:
+
 - 8px to the right of `foldX`: white/transparent (highlight on the front face edge)
 - At `foldX`: no gradient
 - 8px to the left of `foldX`: dark/transparent (shadow on the back face)
 
 ### 5. Spring release
+
 When the user releases:
+
 - If `foldX < pageWidth * 0.4` (dragged past 40%): spring to `foldX = spineX` (complete the turn)
 - Otherwise: spring to `foldX = pageRight` (snap back)
 
 Spring config for page turn: `{ stiffness: 180, damping: 22 }` — smooth, slightly heavy.
 
 ### 6. Page stack
+
 Pages are rendered in z-order. The "current" page is at the top. When a flip completes, the page is moved in the stack.
 
 ---
@@ -144,17 +157,19 @@ Pages are rendered in z-order. The "current" page is at the top. When a flip com
 ## Drag with momentum (v1)
 
 Track velocity during drag:
+
 ```
 velocity.x = (currentX - lastX) / dt
 velocity.y = (currentY - lastY) / dt
 ```
 
 On release, set a spring with high damping and current velocity as the initial velocity:
+
 ```typescript
 spring.velocity = releaseVelocity
-spring.target   = snapTarget      // nearest snap point
-spring.stiffness = 80             // gentle — let momentum carry it
-spring.damping   = 16             // moderate friction
+spring.target = snapTarget // nearest snap point
+spring.stiffness = 80 // gentle — let momentum carry it
+spring.damping = 16 // moderate friction
 ```
 
 This produces momentum scroll, flick-to-dismiss, and all the "throw" interactions that make mobile UIs feel physical.

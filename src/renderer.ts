@@ -11,7 +11,17 @@
  * identical output. It has no knowledge of interaction, state, or animation.
  */
 
-import type { Scene, SceneNode, RectNode, TextNode, CircleNode, LineNode, GroupNode, Shadow } from './types.js'
+import type {
+  Scene,
+  SceneNode,
+  RectNode,
+  TextNode,
+  CircleNode,
+  LineNode,
+  GroupNode,
+  Shadow,
+} from './types.js'
+import { getPreparedText, layoutLinesForCanvas, pretextBlockHeight } from './pretext-layout.js'
 
 // Map from node ID → current spring displacement.
 // Applied additively to the node's base x, y position.
@@ -44,7 +54,7 @@ export function render(
     const g = scene.backgroundGradient
     const cx = g.cx * viewport.width
     const cy = g.cy * viewport.height
-    const r  = g.r * Math.max(viewport.width, viewport.height)
+    const r = g.r * Math.max(viewport.width, viewport.height)
     const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, r)
     grad.addColorStop(0, g.from)
     grad.addColorStop(1, g.to)
@@ -67,20 +77,30 @@ function renderNode(
   parentY: number,
 ): void {
   const off = offsets.get(node.id)
-  const dx  = off?.dx ?? 0
-  const dy  = off?.dy ?? 0
-  const x   = parentX + node.x + dx
-  const y   = parentY + node.y + dy
+  const dx = off?.dx ?? 0
+  const dy = off?.dy ?? 0
+  const x = parentX + node.x + dx
+  const y = parentY + node.y + dy
 
   ctx.save()
   if (node.opacity !== undefined) ctx.globalAlpha *= node.opacity
 
   switch (node.type) {
-    case 'rect':   renderRect(ctx, x, y, node, dy);  break
-    case 'text':   renderText(ctx, x, y, node);       break
-    case 'circle': renderCircle(ctx, x, y, node);     break
-    case 'line':   renderLine(ctx, x, y, node);       break
-    case 'group':  renderGroup(ctx, x, y, node, offsets); break
+    case 'rect':
+      renderRect(ctx, x, y, node, dy)
+      break
+    case 'text':
+      renderText(ctx, x, y, node)
+      break
+    case 'circle':
+      renderCircle(ctx, x, y, node)
+      break
+    case 'line':
+      renderLine(ctx, x, y, node)
+      break
+    case 'group':
+      renderGroup(ctx, x, y, node, offsets)
+      break
   }
 
   // Render children for all node types (children use parent's rendered position)
@@ -107,12 +127,12 @@ function renderRect(
   // Shadow: as the element rises (springDy < 0), the shadow deepens and
   // shifts downward — matching the physics of a surface lifting away from a light.
   if (node.shadows?.length) {
-    const s    = node.shadows[0]
+    const s = node.shadows[0]
     const rise = Math.max(0, -springDy)
-    ctx.shadowColor     = s.color
-    ctx.shadowBlur      = s.blur + rise * 2.5
-    ctx.shadowOffsetX   = s.x
-    ctx.shadowOffsetY   = s.y + rise * 0.5
+    ctx.shadowColor = s.color
+    ctx.shadowBlur = s.blur + rise * 2.5
+    ctx.shadowOffsetX = s.x
+    ctx.shadowOffsetY = s.y + rise * 0.5
   }
 
   buildRoundedRect(ctx, x, y, width, height, radius)
@@ -126,26 +146,49 @@ function renderRect(
 
   if (stroke) {
     ctx.strokeStyle = stroke.color
-    ctx.lineWidth   = stroke.width
+    ctx.lineWidth = stroke.width
     if (stroke.dash) ctx.setLineDash(stroke.dash)
     ctx.stroke()
     if (stroke.dash) ctx.setLineDash([])
   }
 }
 
-function renderText(
-  ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  node: TextNode,
-): void {
-  ctx.font         = node.font
-  ctx.fillStyle    = node.fill
-  ctx.textAlign    = node.align    ?? 'left'
-  ctx.textBaseline = node.baseline ?? 'alphabetic'
+function renderText(ctx: CanvasRenderingContext2D, x: number, y: number, node: TextNode): void {
+  ctx.font = node.font
+  ctx.fillStyle = node.fill
+  const align = node.align ?? 'left'
+  ctx.textAlign = align
+  const baseline = node.baseline ?? 'alphabetic'
+
+  const usePretext =
+    node.textLayout === 'pretext' && node.maxWidth !== undefined && node.lineHeight !== undefined
+
+  if (usePretext) {
+    const maxW = node.maxWidth!
+    const lh = node.lineHeight!
+    const prepared = getPreparedText(node.id, node.content, node.font)
+    const alignH: 'left' | 'center' | 'right' =
+      align === 'center' || align === 'right' ? align : 'left'
+
+    let originY = y
+    if (baseline === 'middle') {
+      originY = y - pretextBlockHeight(prepared, maxW, lh) / 2
+    }
+
+    const laid = layoutLinesForCanvas(prepared, maxW, lh, x, originY, alignH)
+
+    ctx.textBaseline = 'top'
+    ctx.textAlign = 'left'
+    for (const line of laid.lines) {
+      ctx.fillText(line.text, line.x, line.y)
+    }
+    ctx.textAlign = align
+    return
+  }
+
+  ctx.textBaseline = baseline
 
   if (node.maxWidth !== undefined && node.lineHeight !== undefined) {
-    // Word-wrap: split into lines that fit within maxWidth
     const words = node.content.split(' ')
     const lines: string[] = []
     let line = ''
@@ -162,41 +205,34 @@ function renderText(
     if (line) lines.push(line)
 
     for (let i = 0; i < lines.length; i++) {
-      ctx.fillText(lines[i], x, y + i * node.lineHeight)
+      ctx.fillText(lines[i]!, x, y + i * node.lineHeight)
     }
   } else {
     ctx.fillText(node.content, x, y, node.maxWidth)
   }
 }
 
-function renderCircle(
-  ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  node: CircleNode,
-): void {
+function renderCircle(ctx: CanvasRenderingContext2D, x: number, y: number, node: CircleNode): void {
   applyShadows(ctx, node.shadows)
 
   ctx.beginPath()
   ctx.arc(x, y, node.radius, 0, Math.PI * 2)
 
-  if (node.fill) { ctx.fillStyle = node.fill; ctx.fill() }
+  if (node.fill) {
+    ctx.fillStyle = node.fill
+    ctx.fill()
+  }
   clearShadow(ctx)
   if (node.stroke) {
     ctx.strokeStyle = node.stroke.color
-    ctx.lineWidth   = node.stroke.width
+    ctx.lineWidth = node.stroke.width
     ctx.stroke()
   }
 }
 
-function renderLine(
-  ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  node: LineNode,
-): void {
+function renderLine(ctx: CanvasRenderingContext2D, x: number, y: number, node: LineNode): void {
   ctx.strokeStyle = node.stroke.color
-  ctx.lineWidth   = node.stroke.width
+  ctx.lineWidth = node.stroke.width
   if (node.stroke.dash) ctx.setLineDash(node.stroke.dash)
 
   ctx.beginPath()
@@ -244,28 +280,28 @@ function buildRoundedRect(
   ctx.beginPath()
   ctx.moveTo(x + radius, y)
   ctx.lineTo(x + w - radius, y)
-  ctx.quadraticCurveTo(x + w, y,     x + w, y + radius)
+  ctx.quadraticCurveTo(x + w, y, x + w, y + radius)
   ctx.lineTo(x + w, y + h - radius)
   ctx.quadraticCurveTo(x + w, y + h, x + w - radius, y + h)
   ctx.lineTo(x + radius, y + h)
-  ctx.quadraticCurveTo(x,    y + h, x, y + h - radius)
+  ctx.quadraticCurveTo(x, y + h, x, y + h - radius)
   ctx.lineTo(x, y + radius)
-  ctx.quadraticCurveTo(x,    y,     x + radius, y)
+  ctx.quadraticCurveTo(x, y, x + radius, y)
   ctx.closePath()
 }
 
 function applyShadows(ctx: CanvasRenderingContext2D, shadows?: Shadow[]): void {
   if (!shadows?.length) return
   const s = shadows[0]
-  ctx.shadowColor   = s.color
-  ctx.shadowBlur    = s.blur
+  ctx.shadowColor = s.color
+  ctx.shadowBlur = s.blur
   ctx.shadowOffsetX = s.x
   ctx.shadowOffsetY = s.y
 }
 
 function clearShadow(ctx: CanvasRenderingContext2D): void {
-  ctx.shadowColor   = 'transparent'
-  ctx.shadowBlur    = 0
+  ctx.shadowColor = 'transparent'
+  ctx.shadowBlur = 0
   ctx.shadowOffsetX = 0
   ctx.shadowOffsetY = 0
 }

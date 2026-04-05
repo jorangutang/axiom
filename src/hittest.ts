@@ -45,9 +45,9 @@ export function hitTest(
   // Iterate in reverse: last node = topmost
   for (let i = nodes.length - 1; i >= 0; i--) {
     const node = nodes[i]
-    const off  = offsets.get(node.id)
-    const nx   = parentX + node.x + (off?.dx ?? 0)
-    const ny   = parentY + node.y + (off?.dy ?? 0)
+    const off = offsets.get(node.id)
+    const nx = parentX + node.x + (off?.dx ?? 0)
+    const ny = parentY + node.y + (off?.dy ?? 0)
 
     // Check children first — they sit on top of the parent visually
     if (node.children?.length) {

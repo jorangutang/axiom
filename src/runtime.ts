@@ -25,7 +25,8 @@
 
 import { render, type NodeOffsets, type Viewport } from './renderer.js'
 import { hitTest } from './hittest.js'
-import { Spring, createNodeSpring, type NodeSpring } from './physics.js'
+import { clearPretextLayoutCache } from './pretext-layout.js'
+import { createNodeSpring, type NodeSpring } from './physics.js'
 import type { Scene, SceneNode, SpringConfig } from './types.js'
 
 export type UIEventType = 'click' | 'mouseenter' | 'mouseleave' | 'mousedown' | 'mouseup'
@@ -37,27 +38,30 @@ export class Runtime {
   private scene: Scene
   private viewport: Viewport
 
-  private handlers  = new Map<UIEventType, Handler[]>()
-  private springs   = new Map<string, NodeSpring>()
+  private handlers = new Map<UIEventType, Handler[]>()
+  private springs = new Map<string, NodeSpring>()
   private offsets: NodeOffsets = new Map()
 
-  private hoveredId: string | null  = null
-  private pressedId: string | null  = null
-  private rafId: number | null      = null
-  private lastTimestamp             = 0
-  private needsRender               = true
+  private hoveredId: string | null = null
+  private pressedId: string | null = null
+  private rafId: number | null = null
+  private lastTimestamp = 0
+  private needsRender = true
+  /** When set, the RAF loop keeps running and invokes the callback each frame (dt in seconds). */
+  private continuous = false
+  private frameCallback: ((dt: number) => void) | null = null
 
   constructor(canvas: HTMLCanvasElement, scene: Scene) {
-    this.canvas   = canvas
-    this.ctx      = canvas.getContext('2d')!
-    this.scene    = scene
+    this.canvas = canvas
+    this.ctx = canvas.getContext('2d')!
+    this.scene = scene
     this.viewport = this.computeViewport()
 
-    canvas.addEventListener('mousemove',   this.onMouseMove)
-    canvas.addEventListener('mousedown',   this.onMouseDown)
-    canvas.addEventListener('mouseup',     this.onMouseUp)
-    canvas.addEventListener('click',       this.onClick)
-    canvas.addEventListener('mouseleave',  this.onMouseLeaveCanvas)
+    canvas.addEventListener('mousemove', this.onMouseMove)
+    canvas.addEventListener('mousedown', this.onMouseDown)
+    canvas.addEventListener('mouseup', this.onMouseUp)
+    canvas.addEventListener('click', this.onClick)
+    canvas.addEventListener('mouseleave', this.onMouseLeaveCanvas)
 
     this.scheduleFrame()
   }
@@ -65,14 +69,31 @@ export class Runtime {
   // ─── Public API ─────────────────────────────────────────────────────────────
 
   setScene(scene: Scene): void {
-    this.scene       = scene
-    this.viewport    = this.computeViewport()
+    this.scene = scene
+    clearPretextLayoutCache()
+    this.viewport = this.computeViewport()
     this.springs.clear()
     this.offsets.clear()
-    this.hoveredId   = null
-    this.pressedId   = null
+    this.hoveredId = null
+    this.pressedId = null
     this.needsRender = true
     this.scheduleFrame()
+  }
+
+  /** Current scene reference — safe to mutate when driving animation; pair with `setFrameCallback`. */
+  getScene(): Scene {
+    return this.scene
+  }
+
+  /**
+   * Run `fn` every animation frame with delta time in seconds. Enables continuous RAF
+   * until cleared (`null`). Mutate `getScene()` in place for layout animations; do not
+   * call `setScene` each tick (that resets springs and clears Pretext caches).
+   */
+  setFrameCallback(fn: ((dt: number) => void) | null): void {
+    this.frameCallback = fn
+    this.continuous = fn !== null
+    if (fn) this.scheduleFrame()
   }
 
   /**
@@ -116,10 +137,12 @@ export class Runtime {
 
   destroy(): void {
     if (this.rafId !== null) cancelAnimationFrame(this.rafId)
-    this.canvas.removeEventListener('mousemove',  this.onMouseMove)
-    this.canvas.removeEventListener('mousedown',  this.onMouseDown)
-    this.canvas.removeEventListener('mouseup',    this.onMouseUp)
-    this.canvas.removeEventListener('click',      this.onClick)
+    this.frameCallback = null
+    this.continuous = false
+    this.canvas.removeEventListener('mousemove', this.onMouseMove)
+    this.canvas.removeEventListener('mousedown', this.onMouseDown)
+    this.canvas.removeEventListener('mouseup', this.onMouseUp)
+    this.canvas.removeEventListener('click', this.onClick)
     this.canvas.removeEventListener('mouseleave', this.onMouseLeaveCanvas)
   }
 
@@ -133,8 +156,10 @@ export class Runtime {
 
   private loop = (timestamp: number): void => {
     if (this.lastTimestamp === 0) this.lastTimestamp = timestamp
-    const dt = Math.min((timestamp - this.lastTimestamp) / 1000, 0.05)  // cap at 50ms
+    const dt = Math.min((timestamp - this.lastTimestamp) / 1000, 0.05) // cap at 50ms
     this.lastTimestamp = timestamp
+
+    this.frameCallback?.(dt)
 
     // Step all springs and collect their current positions
     let anyActive = false
@@ -145,14 +170,13 @@ export class Runtime {
       this.offsets.set(id, { dx: ns.dx.position, dy: ns.dy.position })
     }
 
-    // Render if springs are moving or scene changed
-    if (anyActive || this.needsRender) {
+    // Render if springs are moving, scene changed, or per-frame animation
+    if (anyActive || this.needsRender || this.continuous) {
       render(this.ctx, this.scene, this.offsets, this.viewport)
       this.needsRender = false
     }
 
-    // Continue only while springs are active
-    if (anyActive) {
+    if (anyActive || this.continuous) {
       this.rafId = requestAnimationFrame(this.loop)
     } else {
       this.rafId = null
@@ -229,7 +253,7 @@ export class Runtime {
   private computeViewport(): Viewport {
     const dpr = window.devicePixelRatio ?? 1
     return {
-      width:  this.canvas.width  / dpr,
+      width: this.canvas.width / dpr,
       height: this.canvas.height / dpr,
     }
   }

@@ -6,6 +6,14 @@ You are a language model generating an Axiom scene — a JSON object that descri
 
 ---
 
+## Scene format version
+
+- Set `"formatVersion": 1` on the root scene object (or omit it; default is `1`).
+- If you integrate a tool or fine-tune on Axiom scenes, **pin** the format version you target.
+- Breaking changes to the JSON shape are documented in **CHANGELOG.md** at the project root and bump the default format version.
+
+---
+
 ## The coordinate system
 
 - Origin `(0, 0)` is the **top-left corner** of the canvas
@@ -43,43 +51,52 @@ Always show your arithmetic. Calculate intermediate values. Then emit the resolv
 ## Layout patterns
 
 ### Horizontal centering
+
 ```
 element.x = (vw - element.width) / 2
 ```
 
 ### Vertical centering in a container
+
 ```
 element.y = (container.height - element.height) / 2
 ```
 
 ### Right-aligned with margin
+
 ```
 element.x = container.width - element.width - margin
 ```
 
 ### Vertically centered text in a bar
+
 If the bar is 64px tall and you want text centered:
+
 ```
 text.y = 32          (with baseline: 'middle')
 ```
 
 ### Equal-width columns (N columns, gap G, margin M on each side)
+
 ```
 colWidth    = (vw - 2*M - (N-1)*G) / N
 col[i].x    = M + i * (colWidth + G)
 ```
 
 ### Vertical stack (items with height H, spacing S, starting at startY)
+
 ```
 item[n].y = startY + n * (H + S)
 ```
 
 ### Full-width element
+
 ```
 element.width = vw
 ```
 
 ### Element pinned to bottom
+
 ```
 element.y = vh - element.height - margin
 ```
@@ -127,11 +144,13 @@ Font format: `"[weight] [size]px [family]"` — exactly as Canvas 2D's `ctx.font
 Common fonts: `Inter`, `SF Pro Display`, `system-ui`, `sans-serif`.
 
 **Baseline guide:**
+
 - `"top"` — y is the top of the text. Use for body text positioned within a container.
 - `"middle"` — y is the vertical center. Use for labels that must be centered in a bar.
 - `"alphabetic"` — y is the baseline (default Canvas behavior). Avoid unless you need precise baseline alignment.
 
 **Multiline text** (provide both `maxWidth` and `lineHeight`):
+
 ```json
 {
   "id": "body",
@@ -146,6 +165,8 @@ Common fonts: `Inter`, `SF Pro Display`, `system-ui`, `sans-serif`.
   "lineHeight": 22
 }
 ```
+
+**Pretext layout** (optional, for higher-quality wrapping and i18n): add `"textLayout": "pretext"` alongside `maxWidth` and `lineHeight`. The runtime uses `@chenglou/pretext` to break lines; still no DOM layout.
 
 ### `circle`
 
@@ -190,8 +211,25 @@ A container. Children's `x, y` are relative to the group's position. When the gr
   "x": 0,
   "y": 0,
   "children": [
-    { "id": "nav-bg",   "type": "rect", "x": 0, "y": 0, "width": 1440, "height": 64, "fill": "#0C0C1A" },
-    { "id": "nav-logo", "type": "text", "x": 24, "y": 32, "content": "ACME", "font": "700 20px Inter", "fill": "#FFF", "baseline": "middle" }
+    {
+      "id": "nav-bg",
+      "type": "rect",
+      "x": 0,
+      "y": 0,
+      "width": 1440,
+      "height": 64,
+      "fill": "#0C0C1A"
+    },
+    {
+      "id": "nav-logo",
+      "type": "text",
+      "x": 24,
+      "y": 32,
+      "content": "ACME",
+      "font": "700 20px Inter",
+      "fill": "#FFF",
+      "baseline": "middle"
+    }
   ]
 }
 ```
@@ -206,10 +244,22 @@ Any node can have children. Children's `x, y` are relative to the parent node's 
 {
   "id": "card",
   "type": "rect",
-  "x": 100, "y": 200, "width": 300, "height": 200,
+  "x": 100,
+  "y": 200,
+  "width": 300,
+  "height": 200,
   "fill": "#0C0C1A",
   "children": [
-    { "id": "card-label", "type": "text", "x": 20, "y": 20, "content": "Title", "font": "700 16px Inter", "fill": "#FFF", "baseline": "top" }
+    {
+      "id": "card-label",
+      "type": "text",
+      "x": 20,
+      "y": 20,
+      "content": "Title",
+      "font": "700 16px Inter",
+      "fill": "#FFF",
+      "baseline": "top"
+    }
   ]
 }
 ```
@@ -219,6 +269,7 @@ Any node can have children. Children's `x, y` are relative to the parent node's 
 ## Visual design
 
 ### Color palette (dark UI)
+
 ```
 Background deep:  #060608
 Background mid:   #0C0C1A
@@ -236,6 +287,7 @@ Accent amber:     #F59E0B
 ```
 
 ### Typography scale
+
 ```
 Display:    "800 52px ..."   — hero headings, wordmarks
 H1:         "700 36px ..."   — page titles
@@ -247,6 +299,7 @@ Caption:    "400 11px ..."   — metadata, labels
 ```
 
 ### Shadow elevation scale
+
 ```
 Flat:       no shadow
 Raised:     { x:0, y:4,  blur:16, color:"rgba(0,0,0,0.4)" }
@@ -255,6 +308,7 @@ Modal:      { x:0, y:20, blur:80, color:"rgba(0,0,0,0.7)" }
 ```
 
 ### Border radius scale
+
 ```
 Small:    4px   — tags, badges, small buttons
 Medium:   8px   — inputs, buttons
@@ -280,30 +334,33 @@ Springs are specified in the interaction layer (separate from the scene JSON). W
 
 ### Spring parameter guide
 
-| Feel         | Stiffness | Damping | Notes                          |
-|-------------|-----------|---------|-------------------------------|
-| Snappy      | 460       | 30      | Buttons, small elements        |
-| Default     | 320       | 24      | Card hover, standard UI        |
-| Smooth      | 200       | 20      | Panels, drawers                |
-| Gentle      | 120       | 18      | Large surfaces, modals         |
-| Bouncy      | 200       | 10      | Playful elements, notifications|
-| Heavy       | 100       | 14      | Large heavy-feeling objects    |
+| Feel    | Stiffness | Damping | Notes                           |
+| ------- | --------- | ------- | ------------------------------- |
+| Snappy  | 460       | 30      | Buttons, small elements         |
+| Default | 320       | 24      | Card hover, standard UI         |
+| Smooth  | 200       | 20      | Panels, drawers                 |
+| Gentle  | 120       | 18      | Large surfaces, modals          |
+| Bouncy  | 200       | 10      | Playful elements, notifications |
+| Heavy   | 100       | 14      | Large heavy-feeling objects     |
 
 ### Common interaction patterns
 
 **Card hover lift:**
+
 ```
 mouseenter → dy: -10, stiffness: 320, damping: 24
 mouseleave → dy: 0,   stiffness: 320, damping: 24
 ```
 
 **Button press:**
+
 ```
 mousedown → dy: +2,  stiffness: 460, damping: 30   (dips down)
 mouseup   → dy: 0,   stiffness: 460, damping: 30   (springs back)
 ```
 
 **Modal open:**
+
 ```
 dy: springs from +20 → 0    (slides up into position)
 opacity: springs from 0 → 1
@@ -311,6 +368,7 @@ stiffness: 200, damping: 20
 ```
 
 **Drawer slide in from right:**
+
 ```
 dx: springs from +vw → 0
 stiffness: 180, damping: 22
