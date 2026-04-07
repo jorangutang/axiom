@@ -1,0 +1,15 @@
+---
+description: When editing or generating Axiom canvas UI (scene JSON, Runtime, kit)
+globs: axiom/**/*
+alwaysApply: false
+---
+
+# Axiom stack
+
+- **Authoring contract:** Scene JSON matches [docs/SCENE_FORMAT.md](docs/SCENE_FORMAT.md). LLMs should read [docs/LLM_PRIMER.md](docs/LLM_PRIMER.md) first. Root field `formatVersion` defaults to `1`; breaking changes are listed in [CHANGELOG.md](CHANGELOG.md).
+- **No CSS / no DOM layout:** Positions are explicit numbers. Use `Runtime` for springs and pointer events, `renderer` for draw, optional `textLayout: "pretext"` on text nodes for `@chenglou/pretext` wrapping.
+- **Kit:** Prefer `axiom/kit` helpers (`card`, `button`, `textBlock`) for common UI instead of hand-rolling many primitives.
+- **Imports:** Published paths use subpath exports (`axiom`, `axiom/kit`, etc.); source uses `.js` extension in TypeScript imports per project convention.
+- **Example LLM prompts:** [docs/PROMPT_EXAMPLE_WATER_TIMER.md](docs/PROMPT_EXAMPLE_WATER_TIMER.md) for a full-app exercise; follow anti-chaos rules there.
+- **Canvas vs DOM:** [docs/HYBRID_UI.md](docs/HYBRID_UI.md) — transparency vs draw order, when to add an HTML shell.
+- **Scope:** [docs/VISION_AND_LIMITS.md](docs/VISION_AND_LIMITS.md) — springs are UI dynamics; water-like surfaces use `axiom/fx` (`RippleSurface2D`) or Tier C WebGL; do not equate `Spring` with fluid simulation.

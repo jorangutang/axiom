@@ -29,6 +29,15 @@ export type NodeOffsets = Map<string, { dx: number; dy: number }>
 
 export type Viewport = { width: number; height: number }
 
+/** Optional hooks between clearing the canvas / drawing scene background and drawing nodes. */
+export type RenderHooks = {
+  /**
+   * Called after `scene.background` / `backgroundGradient`, before any `scene.nodes`.
+   * Use for CPU ripple layers, grids, or other full-viewport effects that should sit **under** UI nodes.
+   */
+  afterBackground?: (ctx: CanvasRenderingContext2D, viewport: Viewport) => void
+}
+
 // ─── Public entry point ───────────────────────────────────────────────────────
 
 export function render(
@@ -36,6 +45,7 @@ export function render(
   scene: Scene,
   offsets: NodeOffsets,
   viewport: Viewport,
+  hooks?: RenderHooks,
 ): void {
   // Clear the full canvas in device pixel space (bypassing the DPR transform)
   ctx.save()
@@ -61,6 +71,8 @@ export function render(
     ctx.fillStyle = grad
     ctx.fillRect(0, 0, viewport.width, viewport.height)
   }
+
+  hooks?.afterBackground?.(ctx, viewport)
 
   for (const node of scene.nodes) {
     renderNode(ctx, node, offsets, 0, 0)

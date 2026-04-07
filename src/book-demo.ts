@@ -5,10 +5,10 @@
  * No CSS layout. No DOM elements beyond a single <canvas>. Pure mathematics.
  *
  * Physics systems:
- *   1. Page flip spring       — Hooke's law drives foldX to completion or snap-back
+ *   1. Page flip spring       — Hooke's law drives foldX forward (next spread) or back (prev)
  *   2. Flip momentum          — drag velocity carries through on release
  *   3. Bezier-curved fold     — real paper doesn't fold in a straight line
- *   4. Corner curl spring     — bottom-right hover lifts the corner
+ *   4. Corner curl spring     — bottom-right / bottom-left hover lifts the corner
  *   5. Particle system        — Newtonian: gravity + air resistance, paper dust on flip
  *   6. Live diagram spring    — interior page shows a spring mass oscillating in real time
  *   7. Ambient sine-wave bob  — the whole book breathes at ~0.65 Hz
@@ -39,9 +39,11 @@ type Particle = {
 }
 
 type FlipState = {
+  /** Forward: turn right page (next spread). Backward: turn left page (prev spread). */
+  direction: 'forward' | 'backward'
   phase: 'drag' | 'spring'
-  foldX: number // current fold x position (absolute canvas coords)
-  curvature: number // bezier bulge at midpoint (px). Positive = curves right.
+  foldX: number // forward: [SPINE_X, SPINE_X+PAGE_W]. backward: [BOOK_X, SPINE_X]
+  curvature: number // bezier bulge at midpoint (px). Forward: curves right; backward: curves left.
   velocity: number // drag velocity px/s — carried into spring on release
   spring: Spring // drives foldX during phase='spring'
   fromSpread: number
@@ -83,6 +85,8 @@ export class BookDemo {
   private dragLastX = 0
   private dragLastTime = 0
   private isCornerHovered = false
+  /** Bottom-left of left page — preview curl when turning backward */
+  private isCornerHoveredBack = false
 
   // Particles
   private particles: Particle[] = []
@@ -165,9 +169,10 @@ export class BookDemo {
     const bob = Math.sin(this.elapsed * 0.65) * 3
     this.bookY = this.BASE_BOOK_Y + this.revealSpring.position + bob
 
-    // Corner curl
-    const curlTarget =
-      this.isCornerHovered && !this.flip && this.currentSpread < TOTAL_SPREADS - 1 ? 24 : 0
+    // Corner curl (forward: bottom-right; backward: bottom-left)
+    const curlForward = this.isCornerHovered && !this.flip && this.currentSpread < TOTAL_SPREADS - 1
+    const curlBackward = this.isCornerHoveredBack && !this.flip && this.currentSpread > 0
+    const curlTarget = curlForward || curlBackward ? 24 : 0
     this.cornerCurl.setTarget(curlTarget)
     this.cornerCurl.step(dt)
 
@@ -216,9 +221,14 @@ export class BookDemo {
     this.drawPageStack(bookY)
 
     if (this.flip) {
-      // The destination spread renders first, underneath the turning leaf
-      this.drawPage(BOOK_X, bookY, 'left', this.flip.fromSpread)
-      this.drawPage(SPINE_X, bookY, 'right', this.flip.toSpread)
+      // Underlay: spread we're revealing underneath, then the static half of the current spread
+      if (this.flip.direction === 'forward') {
+        this.drawPage(BOOK_X, bookY, 'left', this.flip.fromSpread)
+        this.drawPage(SPINE_X, bookY, 'right', this.flip.toSpread)
+      } else {
+        this.drawPage(BOOK_X, bookY, 'left', this.flip.toSpread)
+        this.drawPage(SPINE_X, bookY, 'right', this.flip.fromSpread)
+      }
       // The turning leaf: back face → front face → shadow
       this.drawBackFace(this.flip, bookY)
       this.drawFrontFace(this.flip, bookY)
@@ -248,7 +258,12 @@ export class BookDemo {
 
     // Corner curl (only when not flipping)
     if (!this.flip && this.cornerCurl.position > 0.5) {
-      this.drawCornerCurl(SPINE_X + PAGE_W, bookY + PAGE_H)
+      if (this.isCornerHovered && this.currentSpread < TOTAL_SPREADS - 1) {
+        this.drawCornerCurl(SPINE_X + PAGE_W, bookY + PAGE_H, 1)
+      }
+      if (this.isCornerHoveredBack && this.currentSpread > 0) {
+        this.drawCornerCurl(BOOK_X, bookY + PAGE_H, -1)
+      }
     }
 
     this.drawParticles()
@@ -804,45 +819,74 @@ export class BookDemo {
     const { ctx, PAGE_W, PAGE_H, SPINE_X } = this
     const { foldX, curvature } = flip
 
-    const backW = foldX - SPINE_X
+    // Same affine map for both directions: ratio = (foldX - SPINE_X) / PAGE_W
+    // Forward: foldX > SPINE_X (ratio > 0). Backward: foldX < SPINE_X (ratio < 0).
+    const ratio = (foldX - SPINE_X) / PAGE_W
+    const backW = Math.abs(foldX - SPINE_X)
     if (backW < 1) return
 
-    const ratio = backW / PAGE_W // compression ratio [0, 1]
+    if (flip.direction === 'forward') {
+      // Clip: spine → fold curve (turning right page)
+      ctx.save()
+      ctx.beginPath()
+      ctx.moveTo(SPINE_X, bookY)
+      ctx.lineTo(foldX, bookY)
+      ctx.quadraticCurveTo(foldX + curvature, bookY + PAGE_H / 2, foldX, bookY + PAGE_H)
+      ctx.lineTo(SPINE_X, bookY + PAGE_H)
+      ctx.closePath()
+      ctx.clip()
 
-    // Clip to region: spine → fold curve
-    ctx.save()
-    ctx.beginPath()
-    ctx.moveTo(SPINE_X, bookY)
-    ctx.lineTo(foldX, bookY)
-    ctx.quadraticCurveTo(foldX + curvature, bookY + PAGE_H / 2, foldX, bookY + PAGE_H)
-    ctx.lineTo(SPINE_X, bookY + PAGE_H)
-    ctx.closePath()
-    ctx.clip()
+      ctx.transform(-ratio, 0, 0, 1, foldX + SPINE_X * ratio, 0)
 
-    // Mirror + compression transform
-    ctx.transform(-ratio, 0, 0, 1, foldX + SPINE_X * ratio, 0)
+      this.drawPageFill(SPINE_X, bookY, 'left')
+      this.drawPageContent(SPINE_X, bookY, 'left', flip.toSpread)
+      this.drawPageNumber(SPINE_X, bookY, flip.toSpread * 2 - 1)
 
-    // Draw destination spread's left page in this transformed space
-    // (It appears compressed and mirrored, as physically correct)
-    this.drawPageFill(SPINE_X, bookY, 'left')
-    this.drawPageContent(SPINE_X, bookY, 'left', flip.toSpread)
-    this.drawPageNumber(SPINE_X, bookY, flip.toSpread * 2 - 1)
+      ctx.restore()
 
-    ctx.restore()
+      ctx.save()
+      ctx.beginPath()
+      ctx.moveTo(SPINE_X, bookY)
+      ctx.lineTo(foldX, bookY)
+      ctx.quadraticCurveTo(foldX + curvature, bookY + PAGE_H / 2, foldX, bookY + PAGE_H)
+      ctx.lineTo(SPINE_X, bookY + PAGE_H)
+      ctx.closePath()
+      ctx.clip()
+      ctx.fillStyle = `rgba(30,14,2,${0.07 + 0.2 * (1 - ratio)})`
+      ctx.fillRect(SPINE_X, bookY, foldX - SPINE_X, PAGE_H)
+      ctx.restore()
+    } else {
+      // Backward: underside shows destination spread's right page (verso of left leaf)
+      ctx.save()
+      ctx.beginPath()
+      ctx.moveTo(foldX, bookY)
+      ctx.quadraticCurveTo(foldX + curvature, bookY + PAGE_H / 2, foldX, bookY + PAGE_H)
+      ctx.lineTo(SPINE_X, bookY + PAGE_H)
+      ctx.lineTo(SPINE_X, bookY)
+      ctx.closePath()
+      ctx.clip()
 
-    // Underside darkening: back of page is less lit
-    // (Applied AFTER restoring transform, so coordinates are screen-space)
-    ctx.save()
-    ctx.beginPath()
-    ctx.moveTo(SPINE_X, bookY)
-    ctx.lineTo(foldX, bookY)
-    ctx.quadraticCurveTo(foldX + curvature, bookY + PAGE_H / 2, foldX, bookY + PAGE_H)
-    ctx.lineTo(SPINE_X, bookY + PAGE_H)
-    ctx.closePath()
-    ctx.clip()
-    ctx.fillStyle = `rgba(30,14,2,${0.07 + 0.2 * (1 - ratio)})`
-    ctx.fillRect(SPINE_X, bookY, backW, PAGE_H)
-    ctx.restore()
+      ctx.transform(-ratio, 0, 0, 1, foldX + SPINE_X * ratio, 0)
+
+      this.drawPageFill(SPINE_X, bookY, 'right')
+      this.drawPageContent(SPINE_X, bookY, 'right', flip.toSpread)
+      if (flip.toSpread > 0) this.drawPageNumber(SPINE_X, bookY, flip.toSpread * 2)
+
+      ctx.restore()
+
+      ctx.save()
+      ctx.beginPath()
+      ctx.moveTo(foldX, bookY)
+      ctx.quadraticCurveTo(foldX + curvature, bookY + PAGE_H / 2, foldX, bookY + PAGE_H)
+      ctx.lineTo(SPINE_X, bookY + PAGE_H)
+      ctx.lineTo(SPINE_X, bookY)
+      ctx.closePath()
+      ctx.clip()
+      const lit = Math.abs(ratio)
+      ctx.fillStyle = `rgba(30,14,2,${0.07 + 0.2 * (1 - lit)})`
+      ctx.fillRect(foldX, bookY, SPINE_X - foldX, PAGE_H)
+      ctx.restore()
+    }
   }
 
   // ─── Flip: front face ─────────────────────────────────────────────────────
@@ -851,61 +895,76 @@ export class BookDemo {
   // It shows the current spread's right page, clipped to the right of the fold curve.
   //
   private drawFrontFace(flip: FlipState, bookY: number): void {
-    const { ctx, PAGE_W, PAGE_H, SPINE_X } = this
+    const { ctx, PAGE_W, PAGE_H, BOOK_X, SPINE_X } = this
     const { foldX, curvature } = flip
 
-    const frontW = SPINE_X + PAGE_W - foldX
-    if (frontW < 1) return
+    if (flip.direction === 'forward') {
+      const frontW = SPINE_X + PAGE_W - foldX
+      if (frontW < 1) return
 
-    ctx.save()
+      ctx.save()
+      ctx.beginPath()
+      ctx.moveTo(foldX, bookY)
+      ctx.quadraticCurveTo(foldX + curvature, bookY + PAGE_H / 2, foldX, bookY + PAGE_H)
+      ctx.lineTo(SPINE_X + PAGE_W, bookY + PAGE_H)
+      ctx.lineTo(SPINE_X + PAGE_W, bookY)
+      ctx.closePath()
+      ctx.clip()
 
-    // Clip to region: fold curve → right edge
-    ctx.beginPath()
-    ctx.moveTo(foldX, bookY)
-    ctx.quadraticCurveTo(foldX + curvature, bookY + PAGE_H / 2, foldX, bookY + PAGE_H)
-    ctx.lineTo(SPINE_X + PAGE_W, bookY + PAGE_H)
-    ctx.lineTo(SPINE_X + PAGE_W, bookY)
-    ctx.closePath()
-    ctx.clip()
+      this.drawPageFill(SPINE_X, bookY, 'right')
+      this.drawPageContent(SPINE_X, bookY, 'right', flip.fromSpread)
+      if (flip.fromSpread > 0) this.drawPageNumber(SPINE_X, bookY, flip.fromSpread * 2)
 
-    // Draw the current spread's right page (turning away)
-    this.drawPageFill(SPINE_X, bookY, 'right')
-    this.drawPageContent(SPINE_X, bookY, 'right', flip.fromSpread)
-    if (flip.fromSpread > 0) this.drawPageNumber(SPINE_X, bookY, flip.fromSpread * 2)
+      ctx.restore()
+    } else {
+      const visW = foldX - BOOK_X
+      if (visW < 1) return
 
-    ctx.restore()
+      ctx.save()
+      ctx.beginPath()
+      ctx.moveTo(BOOK_X, bookY)
+      ctx.lineTo(foldX, bookY)
+      ctx.quadraticCurveTo(foldX + curvature, bookY + PAGE_H / 2, foldX, bookY + PAGE_H)
+      ctx.lineTo(BOOK_X, bookY + PAGE_H)
+      ctx.closePath()
+      ctx.clip()
+
+      const r = visW / PAGE_W
+      ctx.translate(BOOK_X, 0)
+      ctx.scale(r, 1)
+      ctx.translate(-BOOK_X, 0)
+
+      this.drawPageFill(BOOK_X, bookY, 'left')
+      this.drawPageContent(BOOK_X, bookY, 'left', flip.fromSpread)
+      if (flip.fromSpread > 0) this.drawPageNumber(BOOK_X, bookY, flip.fromSpread * 2 - 1)
+
+      ctx.restore()
+    }
   }
 
   // ─── Flip: fold shadow + highlight ───────────────────────────────────────
 
   private drawFoldShadow(flip: FlipState, bookY: number): void {
     const { ctx, PAGE_H } = this
-    const { foldX, curvature } = flip
+    const { foldX, curvature, direction } = flip
 
     const SW = 26 // shadow half-width
-    const midX = foldX + curvature * 0.5 // fold x at vertical midpoint
+    const c = direction === 'backward' ? -curvature : curvature
+    const midX = foldX + c * 0.5
 
     ctx.save()
-
-    // Curved shadow path following the bezier fold crease
     ctx.beginPath()
     ctx.moveTo(foldX - SW, bookY)
-    ctx.quadraticCurveTo(
-      foldX - SW + curvature * 0.5,
-      bookY + PAGE_H / 2,
-      foldX - SW,
-      bookY + PAGE_H,
-    )
+    ctx.quadraticCurveTo(foldX - SW + c * 0.5, bookY + PAGE_H / 2, foldX - SW, bookY + PAGE_H)
     ctx.lineTo(foldX + SW, bookY + PAGE_H)
-    ctx.quadraticCurveTo(foldX + SW + curvature * 0.5, bookY + PAGE_H / 2, foldX + SW, bookY)
+    ctx.quadraticCurveTo(foldX + SW + c * 0.5, bookY + PAGE_H / 2, foldX + SW, bookY)
     ctx.closePath()
 
-    // Gradient: dark shadow on left, bright highlight on right of crease
     const g = ctx.createLinearGradient(midX - SW, 0, midX + SW, 0)
     g.addColorStop(0, 'rgba(0,0,0,0)')
     g.addColorStop(0.3, 'rgba(22,8,0,0.10)')
     g.addColorStop(0.46, 'rgba(38,12,0,0.30)')
-    g.addColorStop(0.54, 'rgba(255,232,205,0.28)') // highlight: fold edge catches light
+    g.addColorStop(0.54, 'rgba(255,232,205,0.28)')
     g.addColorStop(0.68, 'rgba(200,155,90,0.06)')
     g.addColorStop(1, 'rgba(0,0,0,0)')
 
@@ -916,28 +975,27 @@ export class BookDemo {
 
   // ─── Corner curl ─────────────────────────────────────────────────────────
 
-  private drawCornerCurl(cornerX: number, cornerY: number): void {
+  /** mirror: 1 = bottom-right corner (forward), -1 = bottom-left (backward) */
+  private drawCornerCurl(cornerX: number, cornerY: number, mirror: 1 | -1): void {
     const { ctx } = this
     const sz = this.cornerCurl.position
     if (sz < 0.5) return
 
-    ctx.save()
+    const dx = mirror * sz
 
-    // Shadow beneath the curl
+    ctx.save()
     ctx.shadowColor = 'rgba(0,0,0,0.28)'
     ctx.shadowBlur = 7
-    ctx.shadowOffsetX = -2
+    ctx.shadowOffsetX = mirror === 1 ? -2 : 2
     ctx.shadowOffsetY = -3
 
-    // Curl triangle: the corner folded back
     ctx.beginPath()
-    ctx.moveTo(cornerX - sz, cornerY)
+    ctx.moveTo(cornerX - dx, cornerY)
     ctx.lineTo(cornerX, cornerY - sz)
     ctx.lineTo(cornerX, cornerY)
     ctx.closePath()
 
-    // Gradient: slightly darker paper color on back side
-    const g = ctx.createLinearGradient(cornerX - sz, cornerY, cornerX, cornerY - sz)
+    const g = ctx.createLinearGradient(cornerX - dx, cornerY, cornerX, cornerY - sz)
     g.addColorStop(0, '#EDE3D2')
     g.addColorStop(1, '#F4EDE0')
     ctx.fillStyle = g
@@ -945,12 +1003,11 @@ export class BookDemo {
 
     ctx.restore()
 
-    // Curl crease line
     ctx.save()
     ctx.strokeStyle = 'rgba(110,80,44,0.20)'
     ctx.lineWidth = 0.8
     ctx.beginPath()
-    ctx.moveTo(cornerX - sz, cornerY)
+    ctx.moveTo(cornerX - dx, cornerY)
     ctx.lineTo(cornerX, cornerY - sz)
     ctx.stroke()
     ctx.restore()
@@ -1013,18 +1070,24 @@ export class BookDemo {
   // ─── Navigation hints ─────────────────────────────────────────────────────
 
   private drawHints(bookY: number): void {
-    const { ctx, SPINE_X, PAGE_W, PAGE_H } = this
-    if (this.flip || this.currentSpread >= TOTAL_SPREADS - 1) return
+    const { ctx, BOOK_X, SPINE_X, PAGE_W, PAGE_H } = this
+    if (this.flip) return
 
-    // Pulsing opacity hint at the bottom-right of the right page
     const pulse = 0.13 + Math.sin(this.elapsed * 2.0) * 0.07
     ctx.save()
     ctx.globalAlpha = pulse
     ctx.font = '400 10px Georgia, serif'
     ctx.fillStyle = '#5A3A1A'
-    ctx.textAlign = 'right'
     ctx.textBaseline = 'bottom'
-    ctx.fillText('drag to turn  →', SPINE_X + PAGE_W - 12, bookY + PAGE_H - 20)
+
+    if (this.currentSpread < TOTAL_SPREADS - 1) {
+      ctx.textAlign = 'right'
+      ctx.fillText('drag → to turn page', SPINE_X + PAGE_W - 12, bookY + PAGE_H - 20)
+    }
+    if (this.currentSpread > 0) {
+      ctx.textAlign = 'left'
+      ctx.fillText('← drag to turn back', BOOK_X + 12, bookY + PAGE_H - 20)
+    }
     ctx.restore()
   }
 
@@ -1119,21 +1182,25 @@ export class BookDemo {
 
   private onMouseMove = (e: MouseEvent): void => {
     const { x, y } = this.getPos(e)
-    const { PAGE_W, PAGE_H, SPINE_X } = this
+    const { PAGE_W, PAGE_H, BOOK_X, SPINE_X } = this
     const bookY = this.bookY
 
-    // Corner hover detection
     const distCorner = Math.hypot(x - (SPINE_X + PAGE_W), y - (bookY + PAGE_H))
     this.isCornerHovered = distCorner < 72 && this.currentSpread < TOTAL_SPREADS - 1
 
-    // Update drag
+    const distCornerBack = Math.hypot(x - BOOK_X, y - (bookY + PAGE_H))
+    this.isCornerHoveredBack = distCornerBack < 72 && this.currentSpread > 0
+
     if (this.isDragging && this.flip) {
       const now = performance.now()
       const dt = (now - this.dragLastTime) / 1000
       if (dt > 0) this.flip.velocity = (x - this.dragLastX) / dt
-      // Curvature reflects drag velocity (fast = more curve)
       this.flip.curvature = Math.max(-25, Math.min(25, this.flip.velocity * 0.045))
-      this.flip.foldX = Math.max(SPINE_X, Math.min(SPINE_X + PAGE_W, x))
+      if (this.flip.direction === 'forward') {
+        this.flip.foldX = Math.max(SPINE_X, Math.min(SPINE_X + PAGE_W, x))
+      } else {
+        this.flip.foldX = Math.max(BOOK_X, Math.min(SPINE_X, x))
+      }
       this.dragLastX = x
       this.dragLastTime = now
       this.canvas.style.cursor = 'grabbing'
@@ -1142,21 +1209,27 @@ export class BookDemo {
 
   private onMouseDown = (e: MouseEvent): void => {
     if (this.flip?.phase === 'spring') return
-    if (this.currentSpread >= TOTAL_SPREADS - 1) return
 
     const { x, y } = this.getPos(e)
-    const { PAGE_W, PAGE_H, SPINE_X } = this
+    const { PAGE_W, PAGE_H, BOOK_X, SPINE_X } = this
     const bookY = this.bookY
+    const inBook = y >= bookY && y <= bookY + PAGE_H
 
-    // Drag zone: right 55% of right page
-    const inZone =
-      x >= SPINE_X + PAGE_W * 0.45 && x <= SPINE_X + PAGE_W && y >= bookY && y <= bookY + PAGE_H
+    const forwardZone =
+      inBook &&
+      this.currentSpread < TOTAL_SPREADS - 1 &&
+      x >= SPINE_X + PAGE_W * 0.45 &&
+      x <= SPINE_X + PAGE_W
 
-    if (inZone) {
+    const backwardZone =
+      inBook && this.currentSpread > 0 && x >= BOOK_X && x <= BOOK_X + PAGE_W * 0.55
+
+    if (forwardZone) {
       this.isDragging = true
       this.dragLastX = x
       this.dragLastTime = performance.now()
       this.flip = {
+        direction: 'forward',
         phase: 'drag',
         foldX: SPINE_X + PAGE_W,
         curvature: 0,
@@ -1164,6 +1237,21 @@ export class BookDemo {
         spring: new Spring({ stiffness: 220, damping: 26 }),
         fromSpread: this.currentSpread,
         toSpread: this.currentSpread + 1,
+      }
+      this.canvas.style.cursor = 'grabbing'
+    } else if (backwardZone) {
+      this.isDragging = true
+      this.dragLastX = x
+      this.dragLastTime = performance.now()
+      this.flip = {
+        direction: 'backward',
+        phase: 'drag',
+        foldX: Math.max(BOOK_X, Math.min(SPINE_X, x)),
+        curvature: 0,
+        velocity: 0,
+        spring: new Spring({ stiffness: 220, damping: 26 }),
+        fromSpread: this.currentSpread,
+        toSpread: this.currentSpread - 1,
       }
       this.canvas.style.cursor = 'grabbing'
     }
@@ -1174,20 +1262,29 @@ export class BookDemo {
     this.isDragging = false
     this.canvas.style.cursor = 'default'
 
-    const { SPINE_X, PAGE_W } = this
-    const shouldComplete = this.flip.foldX < SPINE_X + PAGE_W * 0.45 || this.flip.velocity < -140
+    const { BOOK_X, SPINE_X, PAGE_W } = this
+    let shouldComplete: boolean
+    let target: number
+
+    if (this.flip.direction === 'forward') {
+      shouldComplete = this.flip.foldX < SPINE_X + PAGE_W * 0.45 || this.flip.velocity < -140
+      target = shouldComplete ? SPINE_X : SPINE_X + PAGE_W
+    } else {
+      shouldComplete = this.flip.foldX > BOOK_X + PAGE_W * 0.45 || this.flip.velocity > 140
+      target = shouldComplete ? SPINE_X : BOOK_X
+    }
 
     if (!shouldComplete) this.flip.toSpread = this.flip.fromSpread
 
-    const target = shouldComplete ? SPINE_X : SPINE_X + PAGE_W
     this.flip.spring.snap(this.flip.foldX)
-    this.flip.spring.velocity = this.flip.velocity * 0.5 // carry momentum
+    this.flip.spring.velocity = this.flip.velocity * 0.5
     this.flip.spring.setTarget(target)
     this.flip.phase = 'spring'
   }
 
   private onMouseLeave = (): void => {
     this.isCornerHovered = false
+    this.isCornerHoveredBack = false
     if (this.isDragging) this.onMouseUp()
   }
 

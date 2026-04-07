@@ -1,6 +1,6 @@
 {
   "name": "axiom",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Mathematical UI. Physics-first. LLM-authored.",
   "license": "MIT",
   "private": false,
@@ -57,6 +57,11 @@
       "types": "./dist-lib/kit/index.d.ts",
       "import": "./dist-lib/kit/index.js",
       "default": "./dist-lib/kit/index.js"
+    },
+    "./fx": {
+      "types": "./dist-lib/fx/index.d.ts",
+      "import": "./dist-lib/fx/index.js",
+      "default": "./dist-lib/fx/index.js"
     }
   },
   "files": [

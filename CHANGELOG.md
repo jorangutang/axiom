@@ -2,6 +2,31 @@
 
 All notable changes to the **Axiom scene JSON contract** and the published API are documented here. Scene `formatVersion` bumps only for **breaking** changes to fields LLMs or tools must emit.
 
+## [0.3.0] — 2026-04-05
+
+### Added
+
+- [docs/VISION_AND_LIMITS.md](docs/VISION_AND_LIMITS.md) — product scope, Tier A/B/C (springs vs `fx` vs WebGL/engines).
+- [docs/PROMPT_WATER_CLOCK.md](docs/PROMPT_WATER_CLOCK.md) — LLM prompt for Tier B ripple + HUD.
+- **`axiom/fx`:** [`RippleSurface2D`](src/fx/ripple-surface.ts), [`DropMetronome`](src/fx/scheduled-drop.ts).
+- [`src/demos/water-clock-demo.ts`](src/demos/water-clock-demo.ts) — `?demo=water`; CPU ripple via `Runtime.setRenderHooks({ afterBackground })`.
+- **`RenderHooks.afterBackground`** on [`render()`](src/renderer.ts) and **`Runtime.setRenderHooks`**.
+
+### Changed
+
+- Renderer accepts optional hooks so effects can paint **under** scene nodes without fake z-order tricks.
+
+## [0.2.2] — 2026-04-05
+
+### Added
+
+- [docs/HYBRID_UI.md](docs/HYBRID_UI.md) — when to use canvas/Axiom vs HTML/CSS, hybrid patterns, and common canvas-only pitfalls (transparency vs z-order).
+
+### Changed
+
+- [docs/LLM_PRIMER.md](docs/LLM_PRIMER.md) — section on **draw order, transparency, and clipping**.
+- [docs/PROMPT_EXAMPLE_WATER_TIMER.md](docs/PROMPT_EXAMPLE_WATER_TIMER.md) — rewritten with stricter anti-chaos rules (opaque hits, one primary control, bounded decorations).
+
 ## [0.2.1] — 2026-04-05
 
 ### Added

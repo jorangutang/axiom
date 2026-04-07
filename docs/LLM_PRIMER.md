@@ -14,6 +14,15 @@ You are a language model generating an Axiom scene — a JSON object that descri
 
 ---
 
+## Draw order, transparency, and clipping
+
+- **Order:** Within a `nodes` or `children` array, the **first** node is drawn **underneath**; the **last** is drawn **on top**. There is no separate `zIndex` field.
+- **Transparency:** If you draw **decorations** (droplets, particles) and then draw **buttons** with **semi-transparent** fills (`rgba(..., 0.2)`), the decorations **show through** the buttons. That often looks like “physics on top of UI” even when the order is correct. Use **nearly opaque** fills for interactive surfaces, or put decorations in a **separate layer** that does not sit under interactive areas.
+- **Clipping:** A `group` may set `clipWidth` and `clipHeight` so children do not paint outside a rectangle—useful to confine rain or sparkles to a header strip.
+- **Hybrid apps:** For forms, accessibility, and SEO, prefer DOM for those parts and canvas for the custom layer. See [HYBRID_UI.md](HYBRID_UI.md).
+
+---
+
 ## The coordinate system
 
 - Origin `(0, 0)` is the **top-left corner** of the canvas

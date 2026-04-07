@@ -27,4 +27,4 @@ This runs Prettier (check only), TypeScript `noEmit`, and Vitest.
 
 ## LLM-authored examples
 
-See [docs/PROMPT_EXAMPLE_WATER_TIMER.md](docs/PROMPT_EXAMPLE_WATER_TIMER.md) for a full example prompt pattern.
+See [docs/PROMPT_EXAMPLE_WATER_TIMER.md](docs/PROMPT_EXAMPLE_WATER_TIMER.md) and [docs/PROMPT_WATER_CLOCK.md](docs/PROMPT_WATER_CLOCK.md) for example prompts, [docs/VISION_AND_LIMITS.md](docs/VISION_AND_LIMITS.md) for scope (springs vs `fx` vs engines), and [docs/HYBRID_UI.md](docs/HYBRID_UI.md) for canvas vs DOM boundaries.

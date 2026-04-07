@@ -1,69 +1,84 @@
 # Example prompt: “Rain Timer” (Axiom + canvas + springs + Pretext)
 
-Use this (or adapt it) when you want an LLM to build a **single-file or small-module** experience that exercises **scene JSON**, **Runtime** (springs + hit tests), **Pretext** (`textLayout: "pretext"`), and optional **`setFrameCallback`** for ambient motion.
+Use this when you want an LLM to build a **small** canvas-first demo. **Read [HYBRID_UI.md](HYBRID_UI.md)** so you know when canvas-only is appropriate and how to avoid chaotic layouts.
 
-Copy everything inside the fence into your model chat as the user message.
+For a **real ripple pool + HUD** (Tier B `fx` module), use **[PROMPT_WATER_CLOCK.md](PROMPT_WATER_CLOCK.md)** instead of overloading this prompt.
+
+Copy everything inside the **Prompt** fence into your model chat.
 
 ---
 
 ## Prompt (copy from here)
 
-You are implementing a **focus timer web app** using the **Axiom** stack in this repo. Read these **before writing code**:
+You are implementing a **focus timer** using **Axiom** in this repo. Read first:
 
-- `docs/LLM_PRIMER.md` — how to compute coordinates and emit valid scenes
-- `docs/SCENE_FORMAT.md` — node types and fields
-- `docs/PHYSICS.md` — spring parameters
+- `docs/LLM_PRIMER.md` (especially **draw order and transparency**)
+- `docs/SCENE_FORMAT.md`
+- `docs/PHYSICS.md`
+- `docs/HYBRID_UI.md` (canvas vs DOM — follow canvas-only rules below)
 
 ### Product: “Rain Timer”
 
-**Theme:** A calm, dark glass pane after rain. **Water drops** sit on the “glass” (canvas). A **large, readable countdown** uses Pretext so labels stay crisp when the layout breathes.
+**Visual goal:** Calm, readable, **one clear focal point** (the countdown). Decorative rain/drops are **supporting**, not competing with controls.
 
-**Core behavior**
+### Non-negotiable layout rules (avoid chaotic UIs)
 
-1. **Timer state:** `idle` | `running` | `paused` | `done`. Show remaining time as `MM:SS` (and optionally tenths for the last 10 seconds).
-2. **Presets:** At least three duration chips (e.g. 5 / 15 / 25 minutes). Tapping a chip selects it when idle; does nothing confusing while running (define behavior clearly—e.g. ignore or require long-press to change).
-3. **Primary actions:** `Start` / `Pause` / `Resume` / `Reset` implemented as canvas rects with `interactive: true`, hover springs (`runtime.spring`), and clear cursor hints.
-4. **Clever duration setting (pick one or combine subtly):**
-   - **Ripple dial:** User presses near the **bottom center** and drags horizontally; the **horizontal distance** maps to duration in a bounded range (e.g. 1–90 minutes) with **haptic-style** spring feedback on the “value” indicator.
-   - **Drop merge:** Two small “droplets” (circles) on the glass represent **minutes** and **seconds** banks; **dragging one onto the other** “merges” into a target duration (e.g. sum modulo cap). Use simple geometry + hit tests—no real fluid simulation required; **fake** merge with a spring pulse and particle streaks (small circles or lines) is enough.
-   - **Rain intensity = minutes:** A **slider** made of a rect track + draggable knob; the **vertical position of ambient rain** (line segments or particles) maps to chosen minutes (purely visual metaphor—keep performance sane).
+1. **Decorations vs controls:** Put **ambient drops / rain lines** in either:
+   - a **narrow horizontal band** under the title (e.g. fixed y-range, small height), **or**
+   - **behind** an **opaque** main panel rect (`rgba` alpha ≥ ~0.92 for interactive chips/buttons).
+2. **Do not** scatter 40+ droplets across the **entire** card if you also draw **translucent** preset chips—those drops will **show through** translucent buttons (draw order will look “wrong”). **Opaque** chip/button fills OR confined droplet regions.
+3. **Pick one primary duration control** for the first version: **either** ripple dial **or** vertical slider **or** merge droplets—not all three. You may add **presets** (5 / 15 / 25) as small secondary chips.
+4. **Z-order:** Remember later array elements paint **on top**. Order: background → clipped decoration group → opaque panel → text → interactive rects → text labels on buttons.
+5. **Typography:** Use `textLayout: "pretext"` where text wraps; keep copy **short** so the layout does not fight the timer. **Pretext here is still canvas text** (measurement + line breaks). A **production hybrid** would mirror controls or live regions in **DOM** for accessibility and native forms—see `HYBRID_UI.md`; this exercise stays canvas-first.
 
-5. **Water drops (visual):**
-   - **20–60** small semi-transparent circles or rounded rects with subtle **spring bob** (different phases) using `setFrameCallback` or per-node spring offsets.
-   - Occasional **drip**: a drop moves **down slowly** with easing or a light spring toward a target y, then resets at the top (loop). This must not tank FPS—batch motion, cap count.
+### Interaction physics (checklist)
 
-6. **Typography:** Title and body copy use **`textLayout: "pretext"`** with `maxWidth` and `lineHeight` where wrapping matters. Use explicit numeric layout from the primer (centering, padding).
+Springs should match **affordance and state**, not decorate blindly.
 
-7. **No new dependencies** except what the project already has (`@chenglou/pretext`, Vite, TypeScript). Implement as a **new demo module** (e.g. `src/demos/rain-timer-demo.ts`) and wire it in `src/main.ts` behind `?demo=rain` (or similar).
+- **Tappable / active control:** `mouseenter` → small hover lift (negative `dy` via `runtime.spring`); `mouseleave` → return to 0; `cursor: pointer` (or `ew-resize` / `grab` where appropriate).
+- **Pressed:** `mousedown` → slight dip; `mouseup` → return toward hover lift.
+- **Disabled or no-op** (e.g. presets while running, dial while timer active): **no** hover lift—either skip spring handlers when state forbids interaction, or set `interactive: false` / `cursor: default` for that phase.
+- **Timer completes:** one short motion on the **focal node** (e.g. countdown group)—e.g. spring **dy** then settle; avoid endless oscillation.
+- **Drag primary control (if any):** while dragging, prefer `grabbing`; optional snap spring when the value updates.
 
-8. **Scene discipline:** Emit a **`Scene`** with `formatVersion: 1`. Every positioned element must have **resolved numbers** (show your math in comments above the scene object). Use **meaningful ids** (`timer-start`, `glass-bg`, `drop-12`, …).
+### Core behavior
 
-9. **Polish:** Subtle **radial gradient** background; **shadow** on the main glass card; countdown **scales emotionally**—e.g. gentle spring when transitioning `running` → `done`.
+1. States: `idle` | `running` | `paused` | `done`. Countdown `MM:SS` (optional tenths in last 10s).
+2. **Presets:** 5 / 15 / 25 minutes; disabled or no-op while running (state clearly in status text).
+3. **Actions:** Start / Pause / Resume / Reset — canvas rects, `interactive: true`, hover springs, `cursor`.
+4. **Your single chosen duration control** (dial OR slider OR merge): document interaction in one line of on-screen hint text.
+
+### Water motif (lightweight)
+
+- ≤ **24** small circles **or** short rain segments; animate with `setFrameCallback` or springs. **Cap** work per frame.
+- Optional **one** looping drip (reset at top).
+
+### Scene discipline
+
+- `"formatVersion": 1`
+- Resolved numeric layout with comments showing math
+- Stable ids (`glass-bg`, `chip-15`, …)
 
 ### Deliverables
 
-- The new demo file(s) and the minimal `main.ts` / `index.html` edits to select the demo.
-- Short **README snippet** in a comment at the top of the demo file: how to run (`npm run dev`) and URL query.
+- Demo module + wire `?demo=rain` (or project’s convention).
+- Top-of-file comment: how to run.
 
-### Non-goals
+### Out of scope
 
-- No React/Vue/CSS layout for the main UI (canvas only). A hidden `<input>` for accessibility is optional but not required for this exercise.
-
----
-
-## Why this prompt works
-
-| Mechanism          | What the app exercises                          |
-| ------------------ | ----------------------------------------------- |
-| Scene JSON + math  | Presets, dial/slider geometry, countdown layout |
-| Springs            | Buttons, knob, droplet merge pulse, hover lift  |
-| Pretext            | Wrapped hints, title, adaptive copy             |
-| `setFrameCallback` | Ambient drops, rain intensity, drips            |
-| Hit testing        | Chips, buttons, draggable knob or droplets      |
+- Full React/CSS layout for the timer chrome (canvas exercise). For production a11y, a hybrid DOM timer + canvas decoration would be ideal—see `HYBRID_UI.md`.
 
 ---
 
-## Variations
+## Why the old prompt failed (lesson learned)
 
-- **Pomodoro focus:** same shell, add a “focus / break” phase strip using two spring-driven tabs.
-- **Sound:** leave hooks (`onDone` callback) commented for Web Audio beeps later—keep the first version silent.
+Asking for **dial + slider + merge + many drops + long hint text** produced **overlapping metaphors** and **translucent controls** over busy decoration—visually chaotic. Tight rules above fix the **decision** an LLM must make: **fewer ornaments, opaque hits, one primary control.**
+
+---
+
+## Related
+
+| Doc                            | Use                                     |
+| ------------------------------ | --------------------------------------- |
+| [HYBRID_UI.md](HYBRID_UI.md)   | When canvas-only is enough vs DOM shell |
+| [LLM_PRIMER.md](LLM_PRIMER.md) | Draw order and transparency             |
