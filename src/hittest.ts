@@ -74,7 +74,12 @@ export function hitTest(
         }
         break
       case 'text':
-        // Text nodes are generally not hit-testable; add bounding box if needed
+        // Hittable when explicit bounding dimensions are provided via maxWidth + lineHeight.
+        // The hit box is (nx, ny, maxWidth, lineHeight) — a single-line approximation.
+        // For precise multi-line hit targets, wrap the text in an interactive rect instead.
+        if (node.maxWidth !== undefined && node.lineHeight !== undefined) {
+          hit = pointInRect(px, py, { x: nx, y: ny, w: node.maxWidth, h: node.lineHeight })
+        }
         break
       case 'line':
         // Lines are rarely interactive; skip for now

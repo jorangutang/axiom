@@ -118,7 +118,9 @@ export class Spring2D {
   }
 
   step(dt: number): boolean {
-    return this.x.step(dt) || this.y.step(dt)
+    const xMoving = this.x.step(dt)
+    const yMoving = this.y.step(dt)
+    return xMoving || yMoving
   }
 
   get isSettled(): boolean {

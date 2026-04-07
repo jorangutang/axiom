@@ -23,7 +23,7 @@
  * When all springs settle, the loop stops until the next interaction.
  */
 
-import { render, type NodeOffsets, type Viewport } from './renderer.js'
+import { render, type NodeOffsets, type Viewport, type RenderHooks } from './renderer.js'
 import { hitTest } from './hittest.js'
 import { clearPretextLayoutCache } from './pretext-layout.js'
 import { createNodeSpring, type NodeSpring } from './physics.js'
@@ -31,6 +31,100 @@ import type { Scene, SceneNode, SpringConfig } from './types.js'
 
 export type UIEventType = 'click' | 'mouseenter' | 'mouseleave' | 'mousedown' | 'mouseup'
 type Handler = (id: string) => void
+
+// ─── Validation ───────────────────────────────────────────────────────────────
+
+/**
+ * Validate a scene and return a list of human-readable error strings.
+ * Intended for development: call `setScene()` and check the console.
+ */
+export function validateScene(scene: Scene): string[] {
+  const errors: string[] = []
+  const seenIds = new Set<string>()
+
+  function checkNodes(nodes: SceneNode[], path: string): void {
+    for (let i = 0; i < nodes.length; i++) {
+      const node = nodes[i]
+      const loc = `${path}[${i}]`
+
+      // ID
+      if (!node.id || typeof node.id !== 'string') {
+        errors.push(`${loc}: missing or empty "id" field`)
+      } else if (seenIds.has(node.id)) {
+        errors.push(`${loc}: duplicate id "${node.id}" — every node must have a unique id`)
+      } else {
+        seenIds.add(node.id)
+      }
+
+      const id = node.id ? `"${node.id}"` : loc
+
+      // Opacity
+      if (node.opacity !== undefined && (node.opacity < 0 || node.opacity > 1)) {
+        errors.push(`${id}: opacity ${node.opacity} is out of range [0, 1]`)
+      }
+
+      // Per-type required fields
+      switch (node.type) {
+        case 'rect':
+          if (typeof node.width !== 'number' || node.width < 0)
+            errors.push(`${id} (rect): width must be a non-negative number, got ${node.width}`)
+          if (typeof node.height !== 'number' || node.height < 0)
+            errors.push(`${id} (rect): height must be a non-negative number, got ${node.height}`)
+          break
+        case 'circle':
+          if (typeof node.radius !== 'number' || node.radius < 0)
+            errors.push(`${id} (circle): radius must be a non-negative number, got ${node.radius}`)
+          break
+        case 'text':
+          if (!node.content && node.content !== '')
+            errors.push(`${id} (text): missing "content" field`)
+          if (!node.font) errors.push(`${id} (text): missing "font" field`)
+          if (!node.fill) errors.push(`${id} (text): missing "fill" field`)
+          if (node.maxWidth !== undefined && node.lineHeight === undefined)
+            errors.push(
+              `${id} (text): "maxWidth" is set but "lineHeight" is missing — text will not wrap correctly`,
+            )
+          if (node.textLayout === 'pretext' && node.maxWidth === undefined)
+            errors.push(`${id} (text): textLayout "pretext" requires "maxWidth" to be set`)
+          break
+        case 'line':
+          if (typeof node.dx !== 'number')
+            errors.push(`${id} (line): missing or invalid "dx" field`)
+          if (typeof node.dy !== 'number')
+            errors.push(`${id} (line): missing or invalid "dy" field`)
+          if (!node.stroke) errors.push(`${id} (line): missing "stroke" field`)
+          break
+        case 'group':
+          if (!Array.isArray(node.children))
+            errors.push(`${id} (group): "children" must be an array`)
+          if ((node.clipWidth === undefined) !== (node.clipHeight === undefined)) {
+            errors.push(
+              `${id} (group): "clipWidth" and "clipHeight" must both be set or both omitted`,
+            )
+          }
+          break
+        default: {
+          // Unreachable via TypeScript, but reachable at runtime from LLM-generated JSON
+          const unknownType = (node as Record<string, unknown>).type
+          errors.push(`${loc}: unknown node type "${String(unknownType)}"`)
+        }
+      }
+
+      // Recurse into children
+      if (node.children?.length) {
+        checkNodes(node.children, `${id}.children`)
+      }
+    }
+  }
+
+  if (!Array.isArray(scene.nodes)) {
+    errors.push('scene.nodes must be an array')
+    return errors
+  }
+
+  checkNodes(scene.nodes, 'nodes')
+  return errors
+}
 
 export class Runtime {
   private canvas: HTMLCanvasElement
@@ -50,6 +144,7 @@ export class Runtime {
   /** When set, the RAF loop keeps running and invokes the callback each frame (dt in seconds). */
   private continuous = false
   private frameCallback: ((dt: number) => void) | null = null
+  private renderHooks: RenderHooks | null = null
 
   constructor(canvas: HTMLCanvasElement, scene: Scene) {
     this.canvas = canvas
@@ -62,6 +157,10 @@ export class Runtime {
     canvas.addEventListener('mouseup', this.onMouseUp)
     canvas.addEventListener('click', this.onClick)
     canvas.addEventListener('mouseleave', this.onMouseLeaveCanvas)
+    canvas.addEventListener('touchstart', this.onTouchStart, { passive: false })
+    canvas.addEventListener('touchmove', this.onTouchMove, { passive: false })
+    canvas.addEventListener('touchend', this.onTouchEnd, { passive: false })
+    canvas.addEventListener('touchcancel', this.onTouchCancel)
 
     this.scheduleFrame()
   }
@@ -69,6 +168,10 @@ export class Runtime {
   // ─── Public API ─────────────────────────────────────────────────────────────
 
   setScene(scene: Scene): void {
+    const errors = validateScene(scene)
+    if (errors.length > 0) {
+      for (const msg of errors) console.warn(`[Axiom] ${msg}`)
+    }
     this.scene = scene
     clearPretextLayoutCache()
     this.viewport = this.computeViewport()
@@ -85,6 +188,11 @@ export class Runtime {
     return this.scene
   }
 
+  /** Topmost interactive node at canvas coordinates (CSS px), accounting for spring offsets. */
+  hitTestAt(px: number, py: number): string | null {
+    return hitTest(this.scene.nodes, this.offsets, px, py)
+  }
+
   /**
    * Run `fn` every animation frame with delta time in seconds. Enables continuous RAF
    * until cleared (`null`). Mutate `getScene()` in place for layout animations; do not
@@ -94,6 +202,15 @@ export class Runtime {
     this.frameCallback = fn
     this.continuous = fn !== null
     if (fn) this.scheduleFrame()
+  }
+
+  /**
+   * Optional hooks passed to the renderer (e.g. `afterBackground` for CPU ripple under UI nodes).
+   */
+  setRenderHooks(hooks: RenderHooks | null): void {
+    this.renderHooks = hooks
+    this.needsRender = true
+    this.scheduleFrame()
   }
 
   /**
@@ -139,11 +256,16 @@ export class Runtime {
     if (this.rafId !== null) cancelAnimationFrame(this.rafId)
     this.frameCallback = null
     this.continuous = false
+    this.renderHooks = null
     this.canvas.removeEventListener('mousemove', this.onMouseMove)
     this.canvas.removeEventListener('mousedown', this.onMouseDown)
     this.canvas.removeEventListener('mouseup', this.onMouseUp)
     this.canvas.removeEventListener('click', this.onClick)
     this.canvas.removeEventListener('mouseleave', this.onMouseLeaveCanvas)
+    this.canvas.removeEventListener('touchstart', this.onTouchStart)
+    this.canvas.removeEventListener('touchmove', this.onTouchMove)
+    this.canvas.removeEventListener('touchend', this.onTouchEnd)
+    this.canvas.removeEventListener('touchcancel', this.onTouchCancel)
   }
 
   // ─── Animation loop ──────────────────────────────────────────────────────────
@@ -172,7 +294,7 @@ export class Runtime {
 
     // Render if springs are moving, scene changed, or per-frame animation
     if (anyActive || this.needsRender || this.continuous) {
-      render(this.ctx, this.scene, this.offsets, this.viewport)
+      render(this.ctx, this.scene, this.offsets, this.viewport, this.renderHooks ?? undefined)
       this.needsRender = false
     }
 
@@ -244,6 +366,89 @@ export class Runtime {
     const { x, y } = this.getCanvasPos(e)
     const id = hitTest(this.scene.nodes, this.offsets, x, y)
     if (id) this.emit('click', id)
+  }
+
+  // ─── Touch events ────────────────────────────────────────────────────────────
+
+  // Convert a Touch to CSS pixel coordinates, same space as getCanvasPos.
+  private getTouchPos(touch: Touch): { x: number; y: number } {
+    const rect = this.canvas.getBoundingClientRect()
+    return {
+      x: touch.clientX - rect.left,
+      y: touch.clientY - rect.top,
+    }
+  }
+
+  private onTouchStart = (e: TouchEvent): void => {
+    const touch = e.changedTouches[0]
+    if (!touch) return
+    const { x, y } = this.getTouchPos(touch)
+    const id = hitTest(this.scene.nodes, this.offsets, x, y)
+    if (id) {
+      // Prevent scroll only when a UI node is hit, so non-interactive areas still scroll.
+      e.preventDefault()
+      if (id !== this.hoveredId) {
+        if (this.hoveredId) this.emit('mouseleave', this.hoveredId)
+        this.emit('mouseenter', id)
+        const node = findNode(this.scene.nodes, id)
+        if (node?.cursor) this.canvas.style.cursor = node.cursor
+        this.hoveredId = id
+      }
+      this.pressedId = id
+      this.emit('mousedown', id)
+    }
+  }
+
+  private onTouchMove = (e: TouchEvent): void => {
+    const touch = e.changedTouches[0]
+    if (!touch) return
+    const { x, y } = this.getTouchPos(touch)
+    const id = hitTest(this.scene.nodes, this.offsets, x, y)
+    if (id) e.preventDefault()
+    if (id !== this.hoveredId) {
+      if (this.hoveredId) {
+        this.emit('mouseleave', this.hoveredId)
+        this.canvas.style.cursor = 'default'
+      }
+      if (id) {
+        this.emit('mouseenter', id)
+        const node = findNode(this.scene.nodes, id)
+        if (node?.cursor) this.canvas.style.cursor = node.cursor
+      }
+      this.hoveredId = id
+    }
+  }
+
+  private onTouchEnd = (e: TouchEvent): void => {
+    const touch = e.changedTouches[0]
+    if (!touch) return
+    const { x, y } = this.getTouchPos(touch)
+    const id = hitTest(this.scene.nodes, this.offsets, x, y)
+    if (this.pressedId) {
+      e.preventDefault()
+      this.emit('mouseup', this.pressedId)
+      // Fire click only if the finger lifted over the same node it pressed
+      if (id === this.pressedId) this.emit('click', this.pressedId)
+      this.pressedId = null
+    }
+    // Clear hover on touch end (no hover state on mobile)
+    if (this.hoveredId) {
+      this.emit('mouseleave', this.hoveredId)
+      this.hoveredId = null
+      this.canvas.style.cursor = 'default'
+    }
+  }
+
+  private onTouchCancel = (): void => {
+    if (this.pressedId) {
+      this.emit('mouseup', this.pressedId)
+      this.pressedId = null
+    }
+    if (this.hoveredId) {
+      this.emit('mouseleave', this.hoveredId)
+      this.hoveredId = null
+      this.canvas.style.cursor = 'default'
+    }
   }
 
   private emit(event: UIEventType, id: string): void {
